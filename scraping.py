@@ -1,74 +1,103 @@
-# import dependencies
+# import dependencies Splinter, BeautifulSoup, ChromeDriver and Pandas
 from splinter import Browser
 from bs4 import BeautifulSoup as soup
 from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
+import datetime as dt
 
-# Set the executable path and initialize the chrome browser in splinter
-# executable_path = {"executable_path": "chromedriver"}
-# browser = Browser("chrome", **executable_path)
-executable_path = {"executable_path": ChromeDriverManager().install()}
-browser = Browser("chrome", **executable_path, headless=False)
+def scrape_all():
+    # Set the executable path and initialize the chrome browser in splinter
+    executable_path = {"executable_path": ChromeDriverManager().install()}
+    browser = Browser("chrome", **executable_path, headless=False)
 
-# Visit the mars nasa news site
-url = "https://mars.nasa.gov/news/"
-browser.visit(url)
+    news_title, news_paragraph = mars_news(browser)
 
-# Optional delay for loading the page
-browser.is_element_present_by_css("ul.item_list li.slide", wait_time=1)
+    # Run all scraping functions and store results in dictionary
+    data = {
+            "news_title": news_title,
+            "news_paragraph": news_paragraph,
+            "featured_image": featured_image(browser),
+            "facts": mars_facts(),
+            "last_modified": dt.datetime.now()
+            }
+    
+    # Stop webdriver and return data
+    browser.quit()
+    return data
 
-# Convert the browser HTML to a soup object and then quit the browser
-html = browser.html
-news_soup = soup(html, "html.parser")
+def mars_news(browser):
+    # Scrape Mars News
+    # Visit the mars nasa news site
+    url = "https://mars.nasa.gov/news/"
+    browser.visit(url)
 
-slide_elem = news_soup.select_one("ul.item_list li.slide")
+    # Optional delay for loading the page
+    browser.is_element_present_by_css("ul.item_list li.slide", wait_time=1)
 
-# parse html for news title
-slide_elem.find("div", class_="content_title")
+    # Convert the browser HTML to a soup object and then quit the browser
+    html = browser.html
+    news_soup = soup(html, "html.parser")
 
-# Use the parent element to find the first 'a' tag and save it as 'news_title'
-news_title = slide_elem.find("div", class_="content_title").get_text()
-news_title
+    # Add try/except for error handling
+    try:
+        slide_elem = news_soup.select_one("ul.item_list li.slide")
+        # Use the parent element to find the first 'a' tag and save it as 'news_title'
+        news_title = slide_elem.find("div", class_="content_title").get_text()
+        # Use the parent element to find the paragraph text
+        news_p = slide_elem.find("div", class_="article_teaser_body").get_text()
 
-# Use the parent element to find the paragraph text
-news_p = slide_elem.find("div", class_="article_teaser_body").get_text()
-news_p
+    except AttributeError:
+        return None, None
 
-# Visit URL for featured images - JPL Space Images Featured Image
-url = "https://www.jpl.nasa.gov/spaceimages/?search=&category=Mars"
-browser.visit(url)
+    return news_title, news_p
 
-# Find and click the full image button
-full_image_elem = browser.find_by_id("full_image")
-full_image_elem.click()
+def featured_image(browser):
+    # Visit URL for featured images - JPL Space Images Featured Image
+    url = "https://www.jpl.nasa.gov/spaceimages/?search=&category=Mars"
+    browser.visit(url)
 
-# Find the 'more info' button and click that
-browser.is_element_present_by_text("more info", wait_time=1)
-more_info_elem = browser.links.find_by_partial_text("more info")
-more_info_elem.click()
+    # Find and click the full image button
+    full_image_elem = browser.find_by_id("full_image")[0]
+    full_image_elem.click()
 
-# Parse the resulting html with soup
-html = browser.html
-img_soup = soup(html, "html.parser")
+    # Find the 'more info' button and click that
+    browser.is_element_present_by_text("more info", wait_time=1)
+    more_info_elem = browser.links.find_by_partial_text("more info")
+    more_info_elem.click()
 
-# Find the relative image url
-img_url_rel = img_soup.select_one("figure.lede a img").get("src")
-img_url_rel
+    # Parse the resulting html with soup
+    html = browser.html
+    img_soup = soup(html, "html.parser")
 
-# Use the base URL to create an absolute URL
-img_url = f"https://www.jpl.nasa.gov{img_url_rel}"
-img_url
+    # Add try/except for error handling
+    try:
+        # Find the relative image url
+        img_url_rel = img_soup.select_one("figure.lede a img").get("src")
+    
+    except AttributeError:
+        return None
 
-# Mars facts
-df = pd.read_html("http://space-facts.com/mars/")[0]
-df.head()
+    # Use the base URL to create an absolute URL
+    img_url = f"https://www.jpl.nasa.gov{img_url_rel}"
+    
+    return img_url
 
-df.columns=["Description", "Mars"]
-df.set_index("Description", inplace=True)
-df
+def mars_facts():
+    # Add try/except for error handling
+    try:
+        # Use 'read_html' to scrape the Mars facts table into a dataframe
+        df = pd.read_html("http://space-facts.com/mars/")[0]
 
-# convert DataFrame table back to html-readable code 
-df.to_html()
+    except BaseException:
+        return None
 
+    # Assign columns and set index of dataframe
+    df.columns=["Description", "Mars"]
+    df.set_index("Description", inplace=True)
 
-browser.quit()
+    # Convert dataframe into HTML format, add bootstrap 
+    return df.to_html(classes="table table-striped")
+
+if __name__ == "__main__":
+    # If running as script, print scraped data
+    print(scrape_all())
